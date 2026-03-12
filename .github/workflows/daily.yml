@@ -1,0 +1,29 @@
+name: Daily Job Tracker
+
+on:
+  schedule:
+    - cron: '0 14 * * *'  # 8 PM Bangladesh Time (UTC+6) = 14:00 UTC
+  workflow_dispatch:        # allows manual trigger from GitHub UI
+
+jobs:
+  run-tracker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests cryptography
+
+      - name: Run job tracker
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: python job_tracker.py
