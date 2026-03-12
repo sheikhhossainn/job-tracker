@@ -9,12 +9,11 @@ Daily Remote Web Dev Job Tracker
 import json
 import os
 import re
+import base64
 from datetime import datetime
 from collections import Counter
 
 import requests
-import base64
-
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -60,7 +59,8 @@ For each job return:
 
 Also return top_missing_skills: the 5 most important skills I should learn across all jobs.
 
-Respond ONLY with a valid JSON object. No markdown, no explanation, no code fences.
+IMPORTANT: Respond ONLY with a valid JSON object. No markdown, no explanation, no code fences.
+Start your response with {{ and end with }}
 Format:
 {{
   "jobs": [
@@ -87,23 +87,37 @@ def fetch_jobs():
     print("Asking Gemini to find web dev jobs...")
     payload = {
         "contents": [{"parts": [{"text": PROMPT}]}],
-        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 4000},
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 4000},
         "tools": [{"google_search": {}}]
     }
     resp = requests.post(GEMINI_URL, json=payload, timeout=120)
     resp.raise_for_status()
     data = resp.json()
 
-    text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-    return json.loads(text.strip())
+    # Collect all text parts (Gemini sometimes splits across multiple parts)
+    parts = data["candidates"][0]["content"]["parts"]
+    text = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
+
+    print("Gemini response preview:", text[:200])
+
+    # Strip markdown code fences if present
+    text = re.sub(r"```(?:json)?\s*", "", text)
+    text = re.sub(r"```", "", text)
+
+    # Extract JSON — find first { and last }
+    start = text.find("{")
+    end   = text.rfind("}") + 1
+    if start == -1 or end == 0:
+        raise ValueError(f"No JSON found in Gemini response: {text[:500]}")
+
+    json_str = text[start:end]
+    return json.loads(json_str)
 
 
 # ── Google Sheets Auth ────────────────────────────────────────────────────────
 
 def get_sheets_token():
-    import time, base64
+    import time
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import padding
 
@@ -216,7 +230,7 @@ def write_to_sheets(result):
         res = next((v for k, v in resources.items() if k in skill.lower()),
                    "freeCodeCamp / The Odin Project")
         gap_rows.append([skill, count, priority, res, today])
-    sheets_req("PUT", f"/values/Skill Gaps!A1?valueInputOption=RAW", token, json={"values": gap_rows})
+    sheets_req("PUT", "/values/Skill Gaps!A1?valueInputOption=RAW", token, json={"values": gap_rows})
 
     # Sheet 3: Daily summary log
     ensure_sheet("Daily Summary")
