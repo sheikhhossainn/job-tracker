@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Daily Remote Web Dev Job Tracker
-- Uses Gemini 2.5 Flash with Google Search grounding
-- Saves results to Google Sheets automatically
-- Run daily via GitHub Actions at 8 PM
+- Step 1: Ask Gemini to search for jobs (plain text, no JSON)
+- Step 2: Ask Gemini to convert that text to JSON (no search tool)
+- Saves to Google Sheets via GitHub Actions daily at 8 PM
 """
 
 import json
@@ -27,17 +27,6 @@ GEMINI_URL = (
     "gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY
 )
 
-# ── YOUR PROFILE — edit this ──────────────────────────────────────────────────
-MY_PROFILE = """
-Skills I have: HTML, CSS, JavaScript, React, basic Node.js, Git, REST APIs, Tailwind CSS
-Experience: 2 years frontend development
-Familiar with: TypeScript (basic), basic SQL
-NOT familiar with: Docker, Kubernetes, AWS, GraphQL, Next.js (intermediate+),
-                   Python backend, microservices, CI/CD pipelines, Redis,
-                   testing frameworks (Jest/Vitest)
-Target: Remote frontend or full-stack roles, $80k+ salary
-"""
-
 RESOURCES = {
     "typescript":  "typescriptlang.org / Total TypeScript (free)",
     "next.js":     "nextjs.org/learn (official, free)",
@@ -55,147 +44,188 @@ RESOURCES = {
     "python":      "CS50P Harvard (free)",
 }
 
-# ── Prompt ────────────────────────────────────────────────────────────────────
-
-def build_prompt():
-    today = datetime.now().strftime("%B %d, %Y")
-    return f"""
-Today is {today}. Use Google Search to find 3 remote web developer job postings from the last 30 days.
-
-Search: wellfound.com, weworkremotely.com, remote.co, linkedin.com/jobs, company career pages.
-Roles: React developer, frontend developer, or full-stack JavaScript developer. Salary $80k+.
-
-My profile:
-{MY_PROFILE}
-
-Return ONLY this JSON. Keep all string values SHORT (under 80 chars each). No extra text:
-{{
-  "jobs": [
-    {{
-      "company_name": "name",
-      "job_title": "title",
-      "salary_range": "range or Not Listed",
-      "responsibilities": ["resp 1", "resp 2"],
-      "required_skills": ["skill1", "skill2", "skill3"],
-      "nice_to_have_skills": ["skill1", "skill2"],
-      "missing_skills": ["skills I lack from required_skills"],
-      "match_score": 70,
-      "job_url": "url",
-      "date_posted": "date"
-    }}
-  ],
-  "top_missing_skills": ["skill1", "skill2", "skill3", "skill4", "skill5"]
-}}
+MY_PROFILE = """
+Skills: HTML, CSS, JavaScript, React, basic Node.js, Git, REST APIs, Tailwind CSS
+Experience: 2 years frontend development
+Also know: TypeScript (basic), basic SQL
+Missing: Docker, AWS, GraphQL, Next.js (intermediate+), CI/CD, Redis, Jest/Vitest
+Target: Remote frontend or full-stack roles, $80k+ salary
 """
 
-# ── Gemini API ────────────────────────────────────────────────────────────────
+# ── Gemini call ───────────────────────────────────────────────────────────────
 
-def call_gemini_with_retry(prompt, use_search=False, retries=3):
+def call_gemini(prompt, use_search=False):
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.1,
-            "maxOutputTokens": 8192,
-        },
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 4096},
     }
     if use_search:
         payload["tools"] = [{"google_search": {}}]
 
-    for attempt in range(1, retries + 1):
-        print(f"Calling Gemini (attempt {attempt}/{retries})...")
+    for attempt in range(1, 4):
+        print(f"  Gemini call attempt {attempt}/3...")
         resp = requests.post(GEMINI_URL, json=payload, timeout=120)
 
         if resp.status_code != 200:
-            print(f"HTTP {resp.status_code}: {resp.text[:300]}")
-            if attempt < retries:
-                time.sleep(5 * attempt)
-                continue
-            resp.raise_for_status()
+            print(f"  HTTP {resp.status_code}: {resp.text[:200]}")
+            time.sleep(5 * attempt)
+            continue
 
-        data = resp.json()
-        candidates = data.get("candidates", [])
-
-        if not candidates:
-            block = data.get("promptFeedback", {}).get("blockReason", "unknown")
-            raise ValueError(f"No candidates returned. Block reason: {block}. Response: {json.dumps(data)[:400]}")
-
-        candidate = candidates[0]
-        finish_reason = candidate.get("finishReason", "")
-        print(f"Finish reason: {finish_reason}")
-
-        # RECITATION means Gemini refused to reproduce content — retry without search
-        if finish_reason == "RECITATION":
-            print("Recitation block — retrying without search tool...")
-            if use_search:
-                payload.pop("tools", None)
-                use_search = False
-            if attempt < retries:
-                time.sleep(3)
-                continue
-            raise ValueError("Gemini kept hitting RECITATION block. Try again later.")
+        data      = resp.json()
+        candidate = data.get("candidates", [{}])[0]
+        reason    = candidate.get("finishReason", "")
+        print(f"  Finish reason: {reason}")
 
         if "content" not in candidate:
-            print(f"No content in candidate: {json.dumps(candidate)[:300]}")
-            if attempt < retries:
-                time.sleep(3)
-                continue
-            raise ValueError(f"Gemini returned no content after {retries} attempts.")
+            block = data.get("promptFeedback", {}).get("blockReason", "unknown")
+            print(f"  No content returned. Block: {block}")
+            time.sleep(3)
+            continue
 
         parts = candidate["content"].get("parts", [])
         text  = "".join(p.get("text", "") for p in parts if "text" in p).strip()
+        print(f"  Response length: {len(text)}")
 
-        if not text:
-            print("Empty text response, retrying...")
-            if attempt < retries:
-                time.sleep(3)
-                continue
-            raise ValueError("Gemini returned empty text.")
+        if text:
+            return text, reason
 
-        return text
+        time.sleep(3)
 
-    raise ValueError("All retry attempts failed.")
+    raise ValueError("Gemini failed after 3 attempts.")
 
 
-def fetch_jobs():
-    print("Fetching jobs from Gemini with Google Search...")
-    text = call_gemini_with_retry(build_prompt(), use_search=True)
+# ── Step 1: Search for jobs (plain text output) ───────────────────────────────
 
-    print(f"Response length: {len(text)}")
-    print(f"Preview: {text[:300]}")
+SEARCH_PROMPT = f"""
+Today is {datetime.now().strftime('%B %d, %Y')}.
 
+Search the web for remote web developer jobs. Try these searches:
+1. site:weworkremotely.com React developer
+2. site:wellfound.com remote frontend engineer
+3. remote React OR frontend developer job 2025
+
+For each job you find, write a plain text summary with:
+- Company name
+- Job title  
+- Salary (if shown)
+- 2-3 key responsibilities
+- Required skills list
+- Job URL
+- Approximate date posted
+
+Find as many as you can (aim for 3-5). Write in plain text, no JSON.
+If you find fewer than 3, that is fine — just report what you find accurately.
+"""
+
+# ── Step 2: Convert plain text jobs to JSON ───────────────────────────────────
+
+def make_json_prompt(job_text):
+    return f"""
+Convert these job listings to JSON. Evaluate each against my profile.
+
+MY PROFILE:
+{MY_PROFILE}
+
+JOB LISTINGS:
+{job_text}
+
+INSTRUCTIONS:
+- missing_skills = skills in required_skills that I do NOT have per my profile
+- match_score = 0-100 integer based on how many required skills I have
+- Keep every string value under 100 characters
+- responsibilities: max 3 items
+- required_skills: max 6 items
+- nice_to_have_skills: max 4 items
+- missing_skills: only skills I genuinely lack
+
+Output ONLY the raw JSON below. Start with {{ and end with }}.
+No explanation, no markdown, no code fences.
+
+{{
+  "jobs": [
+    {{
+      "company_name": "...",
+      "job_title": "...",
+      "salary_range": "... or Not Listed",
+      "responsibilities": ["...", "..."],
+      "required_skills": ["...", "..."],
+      "nice_to_have_skills": ["...", "..."],
+      "missing_skills": ["..."],
+      "match_score": 70,
+      "job_url": "...",
+      "date_posted": "..."
+    }}
+  ],
+  "top_missing_skills": ["...", "...", "...", "...", "..."]
+}}
+"""
+
+# ── Parse JSON robustly ───────────────────────────────────────────────────────
+
+def parse_json(text):
     # Strip markdown fences
     text = re.sub(r"```json\s*", "", text)
-    text = re.sub(r"```\s*", "", text)
+    text = re.sub(r"```\s*",     "", text)
     text = text.strip()
 
-    # Extract outermost JSON object
+    # Find outermost { ... }
     start = text.find("{")
     end   = text.rfind("}") + 1
+
     if start == -1 or end <= 1:
-        raise ValueError(f"No JSON object found in response:\n{text[:800]}")
+        raise ValueError(f"No JSON object found in:\n{text[:600]}")
 
     json_str = text[start:end]
+
     try:
-        result = json.loads(json_str)
-    except json.JSONDecodeError:
-        # Response was truncated (MAX_TOKENS) — recover complete job objects
-        print("JSON truncated, attempting to recover complete job entries...")
-        job_matches = re.findall(
-            r'\{[^{}]*"company_name"[^{}]*"match_score"\s*:\s*\d+[^{}]*\}',
-            json_str
+        return json.loads(json_str)
+    except json.JSONDecodeError as e:
+        print(f"  JSON parse error: {e}")
+        print(f"  Attempting to recover complete job objects...")
+
+        # Extract each complete job object individually
+        job_pattern = re.compile(
+            r'\{\s*"company_name"\s*:.*?"date_posted"\s*:\s*"[^"]*"\s*\}',
+            re.DOTALL
         )
-        if not job_matches:
-            raise ValueError(f"Could not recover any jobs from truncated response:\n{json_str[:500]}")
-        jobs = [json.loads(j) for j in job_matches]
-        # Extract top_missing_skills if present, else derive from missing_skills
+        matches = job_pattern.findall(json_str)
+        jobs = []
+        for m in matches:
+            try:
+                jobs.append(json.loads(m))
+            except Exception:
+                pass
+
+        if not jobs:
+            raise ValueError(f"Could not recover any jobs. Raw text:\n{text[:800]}")
+
         all_missing = []
         for job in jobs:
             all_missing.extend(job.get("missing_skills", []))
-        from collections import Counter
         top = [s for s, _ in Counter(all_missing).most_common(5)]
-        result = {"jobs": jobs, "top_missing_skills": top}
 
-    print(f"Parsed {len(result.get('jobs', []))} jobs successfully.")
+        print(f"  Recovered {len(jobs)} jobs from truncated response.")
+        return {"jobs": jobs, "top_missing_skills": top}
+
+
+# ── Main fetch ────────────────────────────────────────────────────────────────
+
+def fetch_jobs():
+    # Step 1: search (with google_search tool, plain text response)
+    print("Step 1: Searching for jobs...")
+    job_text, _ = call_gemini(SEARCH_PROMPT, use_search=True)
+    print(f"  Job listings preview: {job_text[:300]}\n")
+
+    # Step 2: convert to JSON (no search tool — avoids all conflicts)
+    print("Step 2: Converting to JSON...")
+    json_text, reason = call_gemini(make_json_prompt(job_text), use_search=False)
+    print(f"  JSON preview: {json_text[:200]}\n")
+
+    if reason == "MAX_TOKENS":
+        print("  Warning: response truncated, attempting recovery...")
+
+    result = parse_json(json_text)
+    print(f"  Successfully parsed {len(result.get('jobs', []))} jobs.")
     return result
 
 
@@ -296,13 +326,14 @@ def write_to_sheets(result):
 
     gap_rows = [["Skill", "Times Missing", "Priority", "Free Learning Resource", "Last Updated"]]
     for skill, count in freq:
-        priority = "HIGH" if count >= 4 else ("MEDIUM" if count >= 2 else "Low")
+        priority = "HIGH" if count >= 3 else ("MEDIUM" if count >= 2 else "Low")
         res = next((v for k, v in RESOURCES.items() if k in skill.lower()),
                    "freeCodeCamp / The Odin Project")
         gap_rows.append([skill, count, priority, res, today])
-    sheets_req("PUT", "/values/Skill Gaps!A1?valueInputOption=RAW", token, json={"values": gap_rows})
+    sheets_req("PUT", "/values/Skill Gaps!A1?valueInputOption=RAW",
+               token, json={"values": gap_rows})
 
-    # Sheet 3: Daily summary log
+    # Sheet 3: Daily summary
     ensure_sheet("Daily Summary")
     check = sheets_req("GET", "/values/Daily Summary!A1", token)
     if not check.get("values"):
@@ -310,12 +341,9 @@ def write_to_sheets(result):
                    json={"values": [["Date", "Jobs Found", "Top Missing Skills", "Avg Match %"]]})
 
     avg = round(sum(j.get("match_score", 0) for j in jobs) / max(len(jobs), 1))
-    sheets_req(
-        "POST",
-        "/values/Daily Summary!A:D:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
-        token,
-        json={"values": [[today, len(jobs), ", ".join(top_missing), f"{avg}%"]]}
-    )
+    sheets_req("POST",
+               "/values/Daily Summary!A:D:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
+               token, json={"values": [[today, len(jobs), ", ".join(top_missing), f"{avg}%"]]})
 
     print(f"Done! Top skills to learn: {', '.join(top_missing)}")
 
