@@ -137,30 +137,39 @@ def call_gemini(prompt, use_search=False):
 SEARCH_PROMPT = f"""
 Today is {datetime.now().strftime('%B %d, %Y')}.
 
-Search the web for remote web developer jobs posted recently.
-Try searching: "remote React developer job" and "remote frontend developer job site:weworkremotely.com OR site:wellfound.com"
+Search the web for remote web developer jobs. Use these searches:
+1. "remote React developer" site:weworkremotely.com
+2. "remote frontend developer" site:wellfound.com
+3. "remote full stack developer" site:remote.co
 
-For each job found write:
-Company | Title | Salary | Skills needed | URL
+For each job you find, write ALL of these — skip the job entirely if any field is missing:
+- Company name
+- Job title
+- Salary (write exact amount or "Not Listed")
+- Required skills
+- FULL job posting URL (must start with https://)
+- Date posted (must include actual date, not "recently" or "today")
 
-Find 3 jobs. Plain text only. Keep it brief.
+Find 3 jobs. Plain text only. MUST include URL and date for every job.
 """
 
 # ── Step 2: JSON conversion prompt (no search, controlled size) ───────────────
 
 def make_json_prompt(job_text):
-    return f"""Convert these job listings to JSON. Be concise.
+    return f"""Convert these job listings to JSON. Evaluate each against my profile.
 
 MY PROFILE: {MY_PROFILE}
 
-JOBS:
+JOB LISTINGS:
 {job_text[:1500]}
 
-Rules:
-- missing_skills = required skills I lack per my profile
-- match_score = integer 0-100
-- Max 3 responsibilities, 5 required_skills, 3 nice_to_have, 3 missing_skills per job
-- All strings under 80 chars
+CRITICAL RULES:
+- job_url: copy the FULL URL exactly as found (must start with https://). Write "Not Found" if missing
+- date_posted: copy the EXACT date (e.g. "March 10, 2026"). Write "Not Found" if missing
+- missing_skills: only skills from required_skills that I lack per my profile
+- match_score: integer 0-100
+- Max 3 responsibilities, 5 required_skills, 3 nice_to_have, 3 missing_skills
+- All strings under 100 chars
 
 Output ONLY raw JSON, nothing else, starting with {{ ending with }}:
 {{
@@ -174,8 +183,8 @@ Output ONLY raw JSON, nothing else, starting with {{ ending with }}:
       "nice_to_have_skills": ["...", "..."],
       "missing_skills": ["..."],
       "match_score": 70,
-      "job_url": "...",
-      "date_posted": "..."
+      "job_url": "https://...",
+      "date_posted": "Month DD, YYYY"
     }}
   ],
   "top_missing_skills": ["...", "...", "...", "...", "..."]
