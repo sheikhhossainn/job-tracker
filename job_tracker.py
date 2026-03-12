@@ -328,15 +328,25 @@ def write_to_sheets(result):
             })
             sheet_titles.append(title)
 
-    # Sheet 1: Today's jobs
-    tab = f"Jobs {today}"
+    # Single sheet "All Jobs" — appends new rows, never overwrites
+    tab = "All Jobs"
     ensure_sheet(tab)
-    rows = [["Company", "Role", "Salary", "Match %", "Responsibilities",
-             "Required Skills", "Nice to Have", "Skills I'm Missing",
-             "Date Posted", "Job URL"]]
+
+    # Add header only if sheet is empty
+    check = sheets_req("GET", f"/values/{tab}!A1", token)
+    if not check.get("values"):
+        sheets_req("POST", f"/values/{tab}!A1:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
+                   token, json={"values": [["Date Added", "Company", "Role", "Salary",
+                                            "Match %", "Responsibilities", "Required Skills",
+                                            "Nice to Have", "Skills I'm Missing",
+                                            "Date Posted", "Job URL"]]})
+
+    # Append new job rows
+    rows = []
     for job in jobs:
         missing = job.get("missing_skills", [])
         rows.append([
+            today,
             job.get("company_name", ""),
             job.get("job_title", ""),
             job.get("salary_range", "Not Listed"),
@@ -348,9 +358,11 @@ def write_to_sheets(result):
             job.get("date_posted", ""),
             job.get("job_url", ""),
         ])
-    sheets_req("PUT", f"/values/{tab}!A1?valueInputOption=RAW",
-               token, json={"values": rows})
-    print(f"Written {len(jobs)} jobs to '{tab}'")
+
+    if rows:
+        sheets_req("POST", f"/values/{tab}!A:K:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
+                   token, json={"values": rows})
+    print(f"Appended {len(jobs)} jobs to '{tab}'")
 
     print(f"Done! {len(jobs)} jobs saved. Top skills to learn: {', '.join(top_missing)}")
 
