@@ -69,10 +69,10 @@ RESOURCES = {
 
 MY_PROFILE = """
 Skills: HTML, CSS, JavaScript, React, basic Node.js, Git, REST APIs, Tailwind CSS
-Experience: 2 years frontend development
+Experience: Self-taught, no industry/professional experience yet
 Also know: TypeScript (basic), basic SQL
 Missing: Docker, AWS, GraphQL, Next.js (intermediate+), CI/CD, Redis, Jest/Vitest
-Target: Remote frontend or full-stack roles, $80k+ salary
+Target: Remote entry-level or junior frontend/full-stack roles, $40k+ salary
 """
 
 # ── Gemini call ───────────────────────────────────────────────────────────────
@@ -140,7 +140,7 @@ Today is {datetime.now().strftime('%B %d, %Y')}.
 Search the web for remote web developer jobs using these searches:
 1. remote React developer job weworkremotely.com
 2. remote frontend developer job wellfound.com
-3. remote full stack JavaScript developer job
+3. remote entry level junior frontend developer job
 
 For each job found write:
 - Company name
