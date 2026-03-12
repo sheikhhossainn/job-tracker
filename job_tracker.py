@@ -37,48 +37,32 @@ NOT familiar with: Docker, Kubernetes, AWS, GraphQL, Next.js (intermediate+),
 Target: Remote frontend or full-stack roles, $80k+ salary
 """
 
+# Ask for fewer jobs (5 instead of 8) to avoid truncation
 PROMPT = f"""
-Search the web and find 8 real remote web developer job postings that are recent (2024-2025).
+Search the web and find 5 real remote web developer job postings that are recent (2024-2025).
 Focus on: frontend developer, full-stack developer, React developer roles.
-Look on: LinkedIn, Indeed, We Work Remotely, Remote.co, Wellfound, company career pages.
+Look on: We Work Remotely, Remote.co, Wellfound, company career pages.
 
 My profile:
 {MY_PROFILE}
 
-For each job return:
-- company_name
-- job_title
-- salary_range (or "Not Listed")
-- responsibilities (list, max 5 items)
-- required_skills (list)
-- nice_to_have_skills (list)
-- missing_skills (skills from required list that I am missing based on my profile)
-- match_score (0-100 integer, how well I match)
-- job_url
-- date_posted
+For each job return EXACTLY these fields:
+- company_name (string)
+- job_title (string)
+- salary_range (string, or "Not Listed")
+- responsibilities (array of max 4 short strings)
+- required_skills (array of strings)
+- nice_to_have_skills (array of strings)
+- missing_skills (array of skills I am missing)
+- match_score (integer 0-100)
+- job_url (string)
+- date_posted (string)
 
-Also return top_missing_skills: the 5 most important skills I should learn across all jobs.
+Also return top_missing_skills as an array of 5 strings.
 
-IMPORTANT: Respond ONLY with a valid JSON object. No markdown, no explanation, no code fences.
-Start your response with {{ and end with }}
-Format:
-{{
-  "jobs": [
-    {{
-      "company_name": "...",
-      "job_title": "...",
-      "salary_range": "...",
-      "responsibilities": ["..."],
-      "required_skills": ["..."],
-      "nice_to_have_skills": ["..."],
-      "missing_skills": ["..."],
-      "match_score": 75,
-      "job_url": "...",
-      "date_posted": "..."
-    }}
-  ],
-  "top_missing_skills": ["skill1", "skill2", "skill3", "skill4", "skill5"]
-}}
+YOU MUST respond with ONLY a raw JSON object.
+No markdown. No code fences. No explanation. No text before or after.
+The entire response must be valid JSON starting with {{ and ending with }}
 """
 
 # ── Gemini API ────────────────────────────────────────────────────────────────
@@ -87,31 +71,37 @@ def fetch_jobs():
     print("Asking Gemini to find web dev jobs...")
     payload = {
         "contents": [{"parts": [{"text": PROMPT}]}],
-        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 4000},
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 8192,
+            "responseMimeType": "application/json"   # forces JSON output mode
+        },
         "tools": [{"google_search": {}}]
     }
     resp = requests.post(GEMINI_URL, json=payload, timeout=120)
     resp.raise_for_status()
     data = resp.json()
 
-    # Collect all text parts (Gemini sometimes splits across multiple parts)
+    # Collect all text parts
     parts = data["candidates"][0]["content"]["parts"]
-    text = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
+    text = "".join(p.get("text", "") for p in parts if "text" in p).strip()
 
-    print("Gemini response preview:", text[:200])
+    print("Response length:", len(text))
+    print("Preview:", text[:300])
 
-    # Strip markdown code fences if present
-    text = re.sub(r"```(?:json)?\s*", "", text)
-    text = re.sub(r"```", "", text)
+    # Strip any accidental markdown fences
+    text = re.sub(r"```json\s*", "", text)
+    text = re.sub(r"```\s*", "", text)
+    text = text.strip()
 
-    # Extract JSON — find first { and last }
+    # Find the outermost JSON object
     start = text.find("{")
     end   = text.rfind("}") + 1
-    if start == -1 or end == 0:
-        raise ValueError(f"No JSON found in Gemini response: {text[:500]}")
 
-    json_str = text[start:end]
-    return json.loads(json_str)
+    if start == -1 or end <= 1:
+        raise ValueError(f"No valid JSON object found. Response was:\n{text[:1000]}")
+
+    return json.loads(text[start:end])
 
 
 # ── Google Sheets Auth ────────────────────────────────────────────────────────
@@ -133,13 +123,13 @@ def get_sheets_token():
         "exp":   now + 3600
     }).encode()).rstrip(b"=")
 
-    msg = header + b"." + payload
+    msg        = header + b"." + payload
     private_key = serialization.load_pem_private_key(
         creds["private_key"].encode(), password=None
     )
-    signature = private_key.sign(msg, padding.PKCS1v15(), hashes.SHA256())
-    sig_b64   = base64.urlsafe_b64encode(signature).rstrip(b"=")
-    jwt       = (msg + b"." + sig_b64).decode()
+    signature  = private_key.sign(msg, padding.PKCS1v15(), hashes.SHA256())
+    sig_b64    = base64.urlsafe_b64encode(signature).rstrip(b"=")
+    jwt        = (msg + b"." + sig_b64).decode()
 
     token_resp = requests.post("https://oauth2.googleapis.com/token", data={
         "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
