@@ -137,20 +137,20 @@ def call_gemini(prompt, use_search=False):
 SEARCH_PROMPT = f"""
 Today is {datetime.now().strftime('%B %d, %Y')}.
 
-Search the web for remote web developer jobs. Use these searches:
-1. "remote React developer" site:weworkremotely.com
-2. "remote frontend developer" site:wellfound.com
-3. "remote full stack developer" site:remote.co
+Search the web for remote web developer jobs using these searches:
+1. remote React developer job weworkremotely.com
+2. remote frontend developer job wellfound.com
+3. remote full stack JavaScript developer job
 
-For each job you find, write ALL of these — skip the job entirely if any field is missing:
+For each job found write:
 - Company name
 - Job title
-- Salary (write exact amount or "Not Listed")
+- Salary (or "Not Listed")
 - Required skills
-- FULL job posting URL (must start with https://)
-- Date posted (must include actual date, not "recently" or "today")
+- Job URL (full link if available, otherwise the site homepage)
+- Date posted (best estimate if exact date not shown)
 
-Find 3 jobs. Plain text only. MUST include URL and date for every job.
+Find 3 jobs. Plain text only. Do your best — include whatever details you can find.
 """
 
 # ── Step 2: JSON conversion prompt (no search, controlled size) ───────────────
@@ -352,33 +352,7 @@ def write_to_sheets(result):
                token, json={"values": rows})
     print(f"Written {len(jobs)} jobs to '{tab}'")
 
-    # Sheet 2: Skill gaps
-    ensure_sheet("Skill Gaps")
-    all_missing = []
-    for job in jobs:
-        all_missing.extend(job.get("missing_skills", []))
-    freq = Counter(all_missing).most_common(20)
-    gap_rows = [["Skill", "Times Missing", "Priority", "Free Learning Resource", "Last Updated"]]
-    for skill, count in freq:
-        priority = "HIGH" if count >= 3 else ("MEDIUM" if count >= 2 else "Low")
-        res = next((v for k, v in RESOURCES.items() if k in skill.lower()),
-                   "freeCodeCamp / The Odin Project")
-        gap_rows.append([skill, count, priority, res, today])
-    sheets_req("PUT", "/values/Skill Gaps!A1?valueInputOption=RAW",
-               token, json={"values": gap_rows})
-
-    # Sheet 3: Daily summary
-    ensure_sheet("Daily Summary")
-    check = sheets_req("GET", "/values/Daily Summary!A1", token)
-    if not check.get("values"):
-        sheets_req("PUT", "/values/Daily Summary!A1?valueInputOption=RAW", token,
-                   json={"values": [["Date", "Jobs Found", "Top Missing Skills", "Avg Match %"]]})
-    avg = round(sum(j.get("match_score", 0) for j in jobs) / max(len(jobs), 1))
-    sheets_req("POST",
-               "/values/Daily Summary!A:D:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
-               token, json={"values": [[today, len(jobs), ", ".join(top_missing), f"{avg}%"]]})
-
-    print(f"Done! Top skills to learn: {', '.join(top_missing)}")
+    print(f"Done! {len(jobs)} jobs saved. Top skills to learn: {', '.join(top_missing)}")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
