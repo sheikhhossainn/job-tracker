@@ -21,22 +21,10 @@ import requests
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 SPREADSHEET_ID = os.environ["SPREADSHEET_ID"]
 
-# Handle both raw JSON and base64-encoded credentials
-_raw = os.environ["GOOGLE_CREDENTIALS"].strip()
-
-def _load_creds(raw):
-    # Case 1: already raw JSON
-    if raw.startswith("{"):
-        return raw
-    # Case 2: base64 encoded — strip whitespace and decode
-    cleaned = raw.replace(" ", "").replace("\n", "").replace("\r", "").replace("\t", "")
-    cleaned += "=" * (4 - len(cleaned) % 4) if len(cleaned) % 4 else ""
-    try:
-        return base64.b64decode(cleaned).decode("utf-8")
-    except Exception as e:
-        raise ValueError(f"GOOGLE_CREDENTIALS is neither valid JSON nor valid base64.\nError: {e}\nValue starts with: {raw[:80]}")
-
-GOOGLE_CREDS_JSON = _load_creds(_raw)
+# Load Google credentials — expects single-line JSON in the secret
+GOOGLE_CREDS_JSON = os.environ["GOOGLE_CREDS_JSON"].strip()
+print(f"Credentials raw length: {len(GOOGLE_CREDS_JSON)}")
+print(f"Credentials starts with: {repr(GOOGLE_CREDS_JSON[:30])}")
 _creds_check = json.loads(GOOGLE_CREDS_JSON)
 print(f"Credentials loaded for: {_creds_check['client_email']}")
 
@@ -75,7 +63,7 @@ Target: Remote frontend or full-stack roles, $80k+ salary
 def call_gemini(prompt, use_search=False):
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2048},
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
     }
     if use_search:
         payload["tools"] = [{"google_search": {}}]
@@ -175,10 +163,21 @@ def parse_json(text):
     text = text.strip()
 
     start = text.find("{")
-    end   = text.rfind("}") + 1
-
-    if start == -1 or end <= 1:
+    if start == -1:
         raise ValueError(f"No JSON object in response:\n{text[:600]}")
+
+    end = text.rfind("}") + 1
+
+    # If truncated (no closing brace), try to fix by closing open brackets
+    if end <= 1:
+        print("  Response truncated — attempting to close open JSON...")
+        partial = text[start:]
+        open_braces  = partial.count("{") - partial.count("}")
+        open_brackets = partial.count("[") - partial.count("]")
+        partial += "]" * max(open_brackets, 0)
+        partial += "}" * max(open_braces, 0)
+        text = partial
+        end = len(text)
 
     json_str = text[start:end]
 
@@ -189,7 +188,7 @@ def parse_json(text):
 
         # Try extracting individual complete job objects
         matches = re.findall(
-            r'\{\s*"company_name"\s*:.+?"date_posted"\s*:\s*"[^"]*"\s*\}',
+            r'\{[^{}]*"company_name"[^{}]*"match_score"\s*:\s*\d+[^{}]*\}',
             json_str, re.DOTALL
         )
         jobs = []
