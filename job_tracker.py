@@ -60,34 +60,31 @@ RESOURCES = {
 def build_prompt():
     today = datetime.now().strftime("%B %d, %Y")
     return f"""
-Today is {today}. Use Google Search to find 5 current remote web developer job postings.
+Today is {today}. Use Google Search to find 3 remote web developer job postings from the last 30 days.
 
-Search these sites: wellfound.com, weworkremotely.com, remote.co, linkedin.com/jobs, and company career pages.
-Look for: React developer, frontend developer, or full-stack JavaScript developer roles posted in the last 30 days.
+Search: wellfound.com, weworkremotely.com, remote.co, linkedin.com/jobs, company career pages.
+Roles: React developer, frontend developer, or full-stack JavaScript developer. Salary $80k+.
 
 My profile:
 {MY_PROFILE}
 
-Based on what you find, create a JSON object describing these jobs and how they match my profile.
-Analyze each job's required skills against my profile to identify missing_skills and calculate match_score.
-
-Return ONLY this JSON structure with no other text:
+Return ONLY this JSON. Keep all string values SHORT (under 80 chars each). No extra text:
 {{
   "jobs": [
     {{
-      "company_name": "actual company name",
-      "job_title": "actual job title",
-      "salary_range": "salary if listed or Not Listed",
-      "responsibilities": ["responsibility 1", "responsibility 2", "responsibility 3"],
+      "company_name": "name",
+      "job_title": "title",
+      "salary_range": "range or Not Listed",
+      "responsibilities": ["resp 1", "resp 2"],
       "required_skills": ["skill1", "skill2", "skill3"],
       "nice_to_have_skills": ["skill1", "skill2"],
-      "missing_skills": ["skills from required_skills that I do NOT have based on my profile"],
+      "missing_skills": ["skills I lack from required_skills"],
       "match_score": 70,
-      "job_url": "actual url",
+      "job_url": "url",
       "date_posted": "date"
     }}
   ],
-  "top_missing_skills": ["5 most common missing skills across all jobs"]
+  "top_missing_skills": ["skill1", "skill2", "skill3", "skill4", "skill5"]
 }}
 """
 
@@ -177,7 +174,27 @@ def fetch_jobs():
     if start == -1 or end <= 1:
         raise ValueError(f"No JSON object found in response:\n{text[:800]}")
 
-    result = json.loads(text[start:end])
+    json_str = text[start:end]
+    try:
+        result = json.loads(json_str)
+    except json.JSONDecodeError:
+        # Response was truncated (MAX_TOKENS) — recover complete job objects
+        print("JSON truncated, attempting to recover complete job entries...")
+        job_matches = re.findall(
+            r'\{[^{}]*"company_name"[^{}]*"match_score"\s*:\s*\d+[^{}]*\}',
+            json_str
+        )
+        if not job_matches:
+            raise ValueError(f"Could not recover any jobs from truncated response:\n{json_str[:500]}")
+        jobs = [json.loads(j) for j in job_matches]
+        # Extract top_missing_skills if present, else derive from missing_skills
+        all_missing = []
+        for job in jobs:
+            all_missing.extend(job.get("missing_skills", []))
+        from collections import Counter
+        top = [s for s, _ in Counter(all_missing).most_common(5)]
+        result = {"jobs": jobs, "top_missing_skills": top}
+
     print(f"Parsed {len(result.get('jobs', []))} jobs successfully.")
     return result
 
