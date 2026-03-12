@@ -13,12 +13,14 @@ from datetime import datetime
 from collections import Counter
 
 import requests
+import base64
+
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
 GEMINI_API_KEY    = os.environ["GEMINI_API_KEY"]
 SPREADSHEET_ID    = os.environ["SPREADSHEET_ID"]
-GOOGLE_CREDS_JSON = os.environ["GOOGLE_CREDENTIALS"]
+GOOGLE_CREDS_JSON = base64.b64decode(os.environ["GOOGLE_CREDENTIALS"]).decode("utf-8")
 
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
