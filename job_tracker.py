@@ -21,16 +21,23 @@ import requests
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 SPREADSHEET_ID = os.environ["SPREADSHEET_ID"]
 
-# Robust base64 decode — strips all whitespace GitHub might inject
-_raw = os.environ["GOOGLE_CREDENTIALS"].strip().replace(" ", "").replace("\n", "").replace("\r", "")
-# Add padding if needed
-_raw += "=" * (4 - len(_raw) % 4) if len(_raw) % 4 else ""
-GOOGLE_CREDS_JSON = base64.b64decode(_raw).decode("utf-8")
+# Handle both raw JSON and base64-encoded credentials
+_raw = os.environ["GOOGLE_CREDENTIALS"].strip()
 
-# Quick sanity check
+def _load_creds(raw):
+    # Case 1: already raw JSON
+    if raw.startswith("{"):
+        return raw
+    # Case 2: base64 encoded — strip whitespace and decode
+    cleaned = raw.replace(" ", "").replace("\n", "").replace("\r", "").replace("\t", "")
+    cleaned += "=" * (4 - len(cleaned) % 4) if len(cleaned) % 4 else ""
+    try:
+        return base64.b64decode(cleaned).decode("utf-8")
+    except Exception as e:
+        raise ValueError(f"GOOGLE_CREDENTIALS is neither valid JSON nor valid base64.\nError: {e}\nValue starts with: {raw[:80]}")
+
+GOOGLE_CREDS_JSON = _load_creds(_raw)
 _creds_check = json.loads(GOOGLE_CREDS_JSON)
-assert "client_email" in _creds_check and "private_key" in _creds_check, \
-    "Google credentials JSON is missing required fields!"
 print(f"Credentials loaded for: {_creds_check['client_email']}")
 
 GEMINI_URL = (
