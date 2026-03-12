@@ -21,11 +21,18 @@ import requests
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 SPREADSHEET_ID = os.environ["SPREADSHEET_ID"]
 
-# Load Google credentials — expects single-line JSON in the secret
-GOOGLE_CREDENTIALS = os.environ["GOOGLE_CREDENTIALS"].strip()
-print(f"Credentials raw length: {len(GOOGLE_CREDENTIALS)}")
-print(f"Credentials starts with: {repr(GOOGLE_CREDENTIALS[:30])}")
-_creds_check = json.loads(GOOGLE_CREDENTIALS)
+# Load Google credentials — auto-detects base64 or raw JSON
+_raw = os.environ["GOOGLE_CREDENTIALS"].strip()
+print(f"Credentials raw length: {len(_raw)}")
+print(f"Credentials starts with: {repr(_raw[:30])}")
+
+if _raw.startswith("{"):
+    GOOGLE_CREDS_JSON = _raw
+else:
+    _padded = _raw + "=" * (4 - len(_raw) % 4) if len(_raw) % 4 else _raw
+    GOOGLE_CREDS_JSON = base64.b64decode(_padded).decode("utf-8")
+
+_creds_check = json.loads(GOOGLE_CREDS_JSON)
 print(f"Credentials loaded for: {_creds_check['client_email']}")
 
 GEMINI_URL = (
