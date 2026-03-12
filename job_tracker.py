@@ -18,7 +18,16 @@ import requests
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+# Support multiple Gemini API keys — falls back to next key on 429
+GEMINI_API_KEYS = [k.strip() for k in [
+    os.environ.get("GEMINI_API_KEY", ""),
+    os.environ.get("GEMINI_API_KEY_2", ""),
+] if k.strip()]
+
+if not GEMINI_API_KEYS:
+    raise ValueError("No Gemini API keys found!")
+
+print(f"Loaded {len(GEMINI_API_KEYS)} Gemini API key(s)")
 SPREADSHEET_ID = os.environ["SPREADSHEET_ID"]
 
 # Load Google credentials — auto-detects base64 or raw JSON
@@ -35,10 +44,11 @@ else:
 _creds_check = json.loads(GOOGLE_CREDS_JSON)
 print(f"Credentials loaded for: {_creds_check['client_email']}")
 
-GEMINI_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY
-)
+def get_gemini_url(key):
+    return (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        "gemini-2.5-flash:generateContent?key=" + key
+    )
 
 RESOURCES = {
     "typescript":  "typescriptlang.org / Total TypeScript (free)",
@@ -75,18 +85,28 @@ def call_gemini(prompt, use_search=False):
     if use_search:
         payload["tools"] = [{"google_search": {}}]
 
-    for attempt in range(1, 4):
-        print(f"  Gemini call attempt {attempt}/3...")
+    # Try each API key, rotate on 429
+    keys_to_try = []
+    for key in GEMINI_API_KEYS:
+        keys_to_try += [key] * 2  # try each key twice before moving on
+
+    for attempt, key in enumerate(keys_to_try, 1):
+        print(f"  Gemini call attempt {attempt}/{len(keys_to_try)} (key ...{key[-6:]})...")
         try:
-            resp = requests.post(GEMINI_URL, json=payload, timeout=120)
+            resp = requests.post(get_gemini_url(key), json=payload, timeout=120)
         except requests.exceptions.Timeout:
             print("  Request timed out, retrying...")
             time.sleep(5)
             continue
 
+        if resp.status_code == 429:
+            print(f"  429 rate limit on key ...{key[-6:]}, trying next key...")
+            time.sleep(2)
+            continue
+
         if resp.status_code != 200:
             print(f"  HTTP {resp.status_code}: {resp.text[:300]}")
-            time.sleep(5 * attempt)
+            time.sleep(5)
             continue
 
         data      = resp.json()
@@ -109,7 +129,7 @@ def call_gemini(prompt, use_search=False):
 
         time.sleep(3)
 
-    raise ValueError("Gemini failed after 3 attempts.")
+    raise ValueError(f"Gemini failed after trying all {len(GEMINI_API_KEYS)} API key(s). All quota exceeded or errored.")
 
 
 # ── Step 1: Search prompt (plain text output, small) ─────────────────────────
