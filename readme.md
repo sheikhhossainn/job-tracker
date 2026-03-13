@@ -2,6 +2,9 @@
 
 > Automatically finds remote web developer jobs every day, analyzes your skill gaps, and saves everything to your Google Sheet — completely free.
 
+
+## You can modify this to find any kind of job, whether remote or local.
+
 ![GitHub Actions](https://img.shields.io/badge/Automated-GitHub_Actions-2088FF?style=flat-square&logo=github-actions&logoColor=white)
 ![Gemini AI](https://img.shields.io/badge/Powered_by-Gemini_AI-4285F4?style=flat-square&logo=google&logoColor=white)
 ![Google Sheets](https://img.shields.io/badge/Saves_to-Google_Sheets-34A853?style=flat-square&logo=google-sheets&logoColor=white)
