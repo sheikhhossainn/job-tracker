@@ -72,7 +72,8 @@ Skills: HTML, CSS, JavaScript, React, basic Node.js, Git, REST APIs, Tailwind CS
 Experience: Self-taught, no industry/professional experience yet
 Also know: TypeScript (basic), basic SQL
 Missing: Docker, AWS, GraphQL, Next.js (intermediate+), CI/CD, Redis, Jest/Vitest
-Target: Remote entry-level or junior frontend/full-stack roles, $40k+ salary
+Target: Remote entry-level or junior frontend/full-stack roles
+Salary requirement: minimum $700/month OR minimum $40k/year
 """
 
 # ── Gemini call ───────────────────────────────────────────────────────────────
@@ -145,12 +146,12 @@ Search the web for remote web developer jobs using these searches:
 For each job found write:
 - Company name
 - Job title
-- Salary (or "Not Listed")
+- Salary — specify if monthly or yearly e.g. "$1,200/month" or "$50,000/year". Skip jobs under $700/month or $40,000/year.
 - Required skills
-- Job URL (full link if available, otherwise the site homepage)
+- Job URL (full link if available)
 - Date posted (best estimate if exact date not shown)
 
-Find 3 jobs. Plain text only. Do your best — include whatever details you can find.
+Find 3 jobs that meet the salary requirement. Plain text only.
 """
 
 # ── Step 2: JSON conversion prompt (no search, controlled size) ───────────────
@@ -166,6 +167,7 @@ JOB LISTINGS:
 CRITICAL RULES:
 - job_url: copy the FULL URL exactly as found (must start with https://). Write "Not Found" if missing
 - date_posted: copy the EXACT date (e.g. "March 10, 2026"). Write "Not Found" if missing
+- salary_range: MUST specify if monthly or yearly. Format as "$X,XXX/month" or "$XX,XXX/year". If unclear, check the job posting context to determine which it is. If monthly salary is below $700/month, skip this job entirely. If yearly salary is below $40,000/year, skip this job entirely.
 - missing_skills: only skills from required_skills that I lack per my profile
 - match_score: integer 0-100
 - Max 3 responsibilities, 5 required_skills, 3 nice_to_have, 3 missing_skills
